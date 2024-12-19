@@ -127,7 +127,7 @@ async def on_message(message):
 
             try:
                 messages = []
-                async for msg in message.channel.history(limit=(limit + 100)):
+                async for msg in message.channel.history(limit=None):
                     if not pins and msg.pinned:
                         continue
                     if not embeds and (msg.author.bot and msg.embeds):
