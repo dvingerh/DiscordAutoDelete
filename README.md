@@ -23,8 +23,8 @@ The bot uses a rolling log system. When the channel exceeds a set message limit 
 ## Setup
 1. **Clone the Repository**:
    ```bash
-   git clone <repository-url>
-   cd <repository-folder>
+   git clone https://github.com/dvingerh/DiscordAutoDelete.git
+   cd DiscordAutoDelete
    ```
 
 2. **Install Dependencies**:
