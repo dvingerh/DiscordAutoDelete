@@ -1,7 +1,7 @@
-# DiscordAutoDelete Bot README
+# DiscordAutoDelete
 
 ## Overview
-DiscordAutoDelete Bot is a simple yet useful Discord bot designed to manage and automate message deletion tasks in Discord servers. It offers simple but powerful control over which messages are deleted.
+DiscordAutoDelete is a simple yet useful Discord bot designed to manage and automate message deletion tasks in Discord servers. It offers simple but powerful control over which messages are deleted.
 
 The bot uses a rolling log system. When the channel exceeds a set message limit the oldest message that exceeded the limit will be deleted. Messages are not purged in bulk to minimize disruption. You can customize it to exclude pinned messages or bot embeds from being deleted.
 
