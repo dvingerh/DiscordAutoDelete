@@ -18,6 +18,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.messages = True
 intents.members = True
+intents.reactions = True
 activity = discord.CustomActivity(name=STATUS_TEXT)
 
 
@@ -66,8 +67,25 @@ class AutoDeleteBot(commands.Bot):
 
 
 bot = AutoDeleteBot()
-semaphore = asyncio.Semaphore(3)
+semaphore = asyncio.Semaphore(1)
 autodelete_group = app_commands.Group(name="autodelete", description="Required prefix.")
+
+
+@bot.event
+async def on_member_update(before, after):
+    target_role_name = "LOCK"
+    added_roles = [role for role in after.roles if role not in before.roles]
+
+    for role in added_roles:
+        print(f"Added role: {role.name}")
+        if role.name == target_role_name:
+            # Send a message in a specific channel
+            channel_id = 1146950830461816832  # Replace with your channel ID
+            channel = after.guild.get_channel(channel_id)
+            if channel:
+                await channel.send(
+                    f"Why don't you have a seat right over here {after.mention}  "
+                )
 
 
 @bot.event
@@ -96,6 +114,7 @@ async def on_ready():
                         color=discord.Color.green(),
                     )
                     await message.edit(embed=embed)
+
                 except Exception as e:
                     print(f"Failed to edit the restart message: {e}")
 
@@ -104,7 +123,27 @@ async def on_ready():
             sys.argv.remove(channel_id_arg)
         if message_id_arg:
             sys.argv.remove(message_id_arg)
-    await bot.tree.sync()
+    await bot.tree.sync(guild=None)
+    print("Ready")
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    if payload.member.id == bot.user.id:
+        return
+    if payload.message_author_id != bot.user.id:
+        return
+    if str(payload.emoji) == "❌":
+        channel = bot.get_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)
+        await message.delete()
+    if str(payload.emoji) == "🔄":
+        embed = generate_stats_embed(payload.guild_id, bot)
+        channel = bot.get_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)
+        await message.remove_reaction(payload.emoji, payload.member)
+        await message.edit(embed=embed)
+        await message.add_reaction("🔄")
 
 
 @bot.event
@@ -133,24 +172,37 @@ async def on_message(message):
                     if not embeds and (msg.author.bot and msg.embeds):
                         continue
                     messages.append(msg)
-                print(f"{len(messages)} to {limit}")
-                if len(messages) >= limit:
+
+                current_message_count = len(messages)
+                discrepancy = current_message_count - limit
+
+                print(
+                    f"[DEBUG] Channel: {message.channel.name} (ID: {channel_id}) | "
+                    f"Messages Found: {current_message_count} | Limit: {limit} | "
+                    f"Discrepancy: {discrepancy if discrepancy > 0 else 0}"
+                )
+                if discrepancy > 0:
                     to_delete = messages[limit:]
                     for msg in to_delete:
-                        print(f"Deleting message:{msg.content}")
+                        print(
+                            f"[ACTION] Deleting message from '{msg.author}': {msg.content} "
+                            f"(Message ID: {msg.id})"
+                        )
                         await msg.delete()
                         await asyncio.sleep(0.5)
                     print(
-                        f"Deleted {len(to_delete)} messages in {message.channel.name}."
+                        f"[INFO] Deleted {len(to_delete)} messages in channel '{message.channel.name}'."
                     )
+                    print()
                     bot.increment_deleted_messages(channel_id, len(to_delete))
 
             except discord.Forbidden:
                 print(
-                    f"Missing permissions to manage messages in {message.channel.name}."
+                    f"[ERROR] Missing permissions to manage messages in channel '{message.channel.name}' (ID: {channel_id})."
                 )
             except discord.HTTPException as e:
-                print(f"HTTP exception: {e}")
+                print(f"[ERROR] HTTP exception: {e}")
+
 
 
 async def check_role(interaction: discord.Interaction):
@@ -162,6 +214,8 @@ async def check_role(interaction: discord.Interaction):
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
         return False
 
     required_roles = bot.get_management_roles(guild.id)
@@ -175,6 +229,8 @@ async def check_role(interaction: discord.Interaction):
             color=discord.Color.orange(),
         )
         await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
         return False
 
     if not any(
@@ -187,6 +243,8 @@ async def check_role(interaction: discord.Interaction):
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
         return False
 
     return True
@@ -204,7 +262,9 @@ async def restart(interaction: discord.Interaction):
         color=discord.Color.orange(),
     )
     await interaction.response.defer()
-    message = await interaction.followup.send(embed=embed)
+    await interaction.followup.send(embed=embed)
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
 
     channel_id = interaction.channel.id
     message_id = message.id
@@ -235,6 +295,8 @@ async def setup(interaction: discord.Interaction, roles: str):
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
         return
 
     role_ids = []
@@ -255,6 +317,8 @@ async def setup(interaction: discord.Interaction, roles: str):
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
         return
 
     bot.set_management_roles(interaction.guild_id, role_ids)
@@ -264,7 +328,8 @@ async def setup(interaction: discord.Interaction, roles: str):
         color=discord.Color.green(),
     )
     await interaction.response.send_message(embed=embed)
-
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
 
 @autodelete_group.command(name="add", description="Add a new task.")
 @app_commands.describe(
@@ -305,7 +370,8 @@ async def add(
         color=discord.Color.green(),
     )
     await interaction.response.send_message(embed=embed)
-
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
 
 @autodelete_group.command(name="remove", description="Remove a task.")
 @app_commands.describe(channel="The channel name the task should be removed from.")
@@ -328,7 +394,8 @@ async def remove(interaction: discord.Interaction, channel: discord.TextChannel)
             color=discord.Color.orange(),
         )
         await interaction.response.send_message(embed=embed)
-
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
 
 @autodelete_group.command(name="list", description="View all existing tasks.")
 async def list(interaction: discord.Interaction):
@@ -349,6 +416,8 @@ async def list(interaction: discord.Interaction):
             color=discord.Color.orange(),
         )
         await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
         return
 
     entries_per_page = 5
@@ -390,30 +459,69 @@ async def list(interaction: discord.Interaction):
     if total_pages > 1:
         await message.add_reaction("◀️")
         await message.add_reaction("▶️")
+        await message.add_reaction("❌")
 
         def check(reaction, user):
             return (
-                user == interaction.user
-                and str(reaction.emoji) in ["◀️", "▶️"]
+                str(reaction.emoji) in ["◀️", "▶️", "❌"]
                 and reaction.message.id == message.id
             )
 
-        while True:
-            try:
-                reaction, user = await bot.wait_for(
-                    "reaction_add", timeout=60.0, check=check
-                )
-
-                if str(reaction.emoji) == "◀️" and current_page > 0:
-                    current_page -= 1
-                elif str(reaction.emoji) == "▶️" and current_page < total_pages - 1:
-                    current_page += 1
-
-                await message.edit(embed=create_embed(current_page))
-                await message.remove_reaction(reaction.emoji, user)
-            except asyncio.TimeoutError:
-                await message.clear_reactions()
+    while True:
+        try:
+            reaction, user = await bot.wait_for("reaction_add", check=check)
+            if str(reaction.emoji) == "❌":
+                await message.delete()
                 break
+            if str(reaction.emoji) == "◀️" and current_page > 0:
+                current_page -= 1
+            elif str(reaction.emoji) == "▶️" and current_page < total_pages - 1:
+                current_page += 1
+            embed = create_embed(current_page)
+            await message.edit(embed=embed)
+            await message.remove_reaction(reaction.emoji, user)
+        except asyncio.TimeoutError:
+            await message.clear_reactions()
+            break
+
+
+def generate_stats_embed(guild_id: int, bot: AutoDeleteBot) -> discord.Embed:
+    server_tasks = [
+        config
+        for channel_id, config in bot.config.items()
+        if channel_id != "management_roles" and config.get("guild") == guild_id
+    ]
+
+    total_tasks = len(server_tasks)
+    active_tasks = sum(1 for task in server_tasks if task.get("enabled", True))
+    inactive_tasks = total_tasks - active_tasks
+    management_roles = bot.get_management_roles(guild_id)
+
+    if management_roles:
+        roles_mentions = ", ".join(f"<@&{role_id}>" for role_id in management_roles)
+    else:
+        roles_mentions = "None"
+
+    deleted_counts = []
+    combined_total = 0
+    for channel_id, count in bot.deleted_message_count.items():
+        channel = bot.get_channel(int(channel_id))
+        if channel and channel.guild.id == guild_id:
+            deleted_counts.append(f"{channel.mention}: `{count}`")
+            combined_total += count
+
+    description = (
+        f"Total tasks: `{total_tasks}`\n"
+        f"Active tasks: `{active_tasks}`\n"
+        f"Inactive tasks: `{inactive_tasks}`\n"
+        f"Management roles: {roles_mentions}\n\n"
+        f"Deleted messages per channel:\n\n" + "\n".join(deleted_counts) + "\n\n"
+        f"Total deleted messages: `{combined_total}`"
+    )
+
+    return discord.Embed(
+        title="Statistics", description=description, color=discord.Color.brand_green()
+    )
 
 
 @autodelete_group.command(name="edit", description="Edit an existing task.")
@@ -442,6 +550,8 @@ async def edit(
             color=discord.Color.orange(),
         )
         await interaction.response.send_message(embed=embed)
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
         return
 
     if limit is not None:
@@ -464,7 +574,8 @@ async def edit(
         color=discord.Color.green(),
     )
     await interaction.response.send_message(embed=embed)
-
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
 
 @autodelete_group.command(
     name="stats", description="View this server's bot statistics."
@@ -473,46 +584,11 @@ async def stats(interaction: discord.Interaction):
     if not await check_role(interaction):
         return
 
-    server_tasks = []
-    for channel_id, config in bot.config.items():
-        if (
-            channel_id == "management_roles"
-            or config.get("guild") != interaction.guild_id
-        ):
-            continue
-        server_tasks.append(config)
-
-    total_tasks = len(server_tasks)
-    active_tasks = sum(1 for task in server_tasks if task.get("enabled", True))
-    inactive_tasks = total_tasks - active_tasks
-    management_roles = bot.get_management_roles(interaction.guild_id)
-
-    if management_roles:
-        roles_mentions = ", ".join(f"<@&{role_id}>" for role_id in management_roles)
-    else:
-        roles_mentions = "None"
-
-    deleted_counts = []
-    combined_total = 0
-    for channel_id, count in bot.deleted_message_count.items():
-        channel = bot.get_channel(int(channel_id))
-        if channel and channel.guild.id == interaction.guild_id:
-            deleted_counts.append(f"{channel.mention}: `{count}`")
-            combined_total += count
-
-    embed = discord.Embed(
-        title="Statistics",
-        description=(
-            f"Total Tasks: `{total_tasks}`\n"
-            f"Active Tasks: `{active_tasks}`\n"
-            f"Inactive Tasks: `{inactive_tasks}`\n"
-            f"Management Roles: {roles_mentions}\n\n"
-            f"Deleted Messages per Channel:\n" + "\n".join(deleted_counts) + "\n\n"
-            f"Combined Total Deleted Messages: `{combined_total}`"
-        ),
-        color=discord.Color.blue(),
-    )
+    embed = generate_stats_embed(interaction.guild.id, bot)
     await interaction.response.send_message(embed=embed)
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
+    await message.add_reaction("🔄")
 
 
 @autodelete_group.command(
@@ -552,13 +628,16 @@ async def toggle_all(interaction: discord.Interaction, enabled: bool):
     )
 
     await interaction.response.send_message(embed=embed)
-
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
 
 @autodelete_group.command(
     name="help", description="Displays a list of all available commands."
 )
 async def help(interaction: discord.Interaction):
     """Displays a detailed list of all commands."""
+    if not await check_role(interaction):
+        return
     embed = discord.Embed(
         title="Commands",
         description="Here is a list of all available commands:",
@@ -573,7 +652,8 @@ async def help(interaction: discord.Interaction):
         )
 
     await interaction.response.send_message(embed=embed)
-
+    message = await interaction.original_response()
+    await message.add_reaction("❌")
 
 @autodelete_group.command(name="purge", description="Purge all tasks for this server.")
 async def purge(interaction: discord.Interaction):
@@ -594,23 +674,26 @@ async def purge(interaction: discord.Interaction):
             color=discord.Color.orange(),
         )
         await interaction.response.send_message(embed=embed)
-        return
-
+        message = await interaction.original_response()
+        await message.add_reaction("❌")
+        
     class ConfirmPurgeModal(discord.ui.Modal):
         def __init__(self):
             super().__init__(title="Confirm")
 
             self.add_item(
                 discord.ui.TextInput(
-                    label="Type 'Y' to proceed. This action cannot be undone.",
-                    placeholder="Y",
+                    label="Type 'YES' to confirm.",
+                    placeholder="YES",
                     required=True,
-                    max_length=10,
+                    max_length=3,
                 )
             )
 
         async def on_submit(self, interaction: discord.Interaction):
-            if self.children[0].value != "Y":
+            if not await check_role(interaction):
+                return
+            if self.children[0].value != "YES":
                 await interaction.response.send_message(
                     embed=discord.Embed(
                         title="Purge cancelled",
@@ -633,7 +716,8 @@ async def purge(interaction: discord.Interaction):
             )
 
             await interaction.response.send_message(embed=success_embed)
-
+            message = await interaction.original_response()
+            await message.add_reaction("❌")
     await interaction.response.send_modal(ConfirmPurgeModal())
 
 
